@@ -50,6 +50,7 @@
 
 - (void) didResolveServiceInfo:(DNSServiceErrorType)error resolveResult:(ResolveResult*)resolveResult txtData:(NSData*)svcTxtData moreComing:(BOOL)moreComing;
 - (void) didResolveServiceAddresses:(DNSServiceErrorType)error;
+- (void) didGetTxtRecord:(DNSServiceErrorType)error txtData:(NSData*)svcTxtData;
 
 @end
 
@@ -104,6 +105,22 @@ static void resolveCallback(DNSServiceRef sdRef, DNSServiceFlags flags, uint32_t
     [newName release];
 }
 
+static void queryRecordCallback (
+                                 DNSServiceRef sdRef,
+                                 DNSServiceFlags flags,
+                                 uint32_t interfaceIndex,
+                                 DNSServiceErrorType errorCode,
+                                 const char                          *fullname,
+                                 uint16_t rrtype,
+                                 uint16_t rrclass,
+                                 uint16_t rdlen,
+                                 const void                          *rdata,
+                                 uint32_t ttl,
+                                 void                                *context
+                                 ) {
+    HHService* serviceResolver = (HHService*)context;
+    [serviceResolver didGetTxtRecord:errorCode txtData:[NSData dataWithBytes:rdata length:rdlen]];
+}
 
 #pragma mark -
 #pragma mark HHService
@@ -151,6 +168,15 @@ static void resolveCallback(DNSServiceRef sdRef, DNSServiceFlags flags, uint32_t
         }
     } else {
         self.resolved = NO;
+        [self.delegate serviceDidNotResolve:self];
+    }
+}
+
+- (void) didGetTxtRecord:(DNSServiceErrorType)error txtData:(NSData*)svcTxtData {
+    if (error == kDNSServiceErr_NoError) {
+        self.txtData = svcTxtData;
+        [self.delegate serviceDidResolve:self];
+    } else {
         [self.delegate serviceDidNotResolve:self];
     }
 }
@@ -266,6 +292,24 @@ static void resolveCallback(DNSServiceRef sdRef, DNSServiceFlags flags, uint32_t
     [super closeConnection];
 }
 
+- (void) getTxtRecord {
+    [self doDestroy];
+
+    const char* fullname = [[[NSString alloc] initWithFormat:@"%@.%@.%@", self.name, self.type, self.domain] cStringUsingEncoding:NSUTF8StringEncoding];
+
+    DNSServiceFlags flags = 0;
+#if TARGET_OS_IPHONE == 1
+    flags = (uint32_t)(includeP2P ? kDNSServiceFlagsIncludeP2P : 0);
+#endif
+
+    self.lastError = DNSServiceQueryRecord(&self->sdRef, flags, kDNSServiceInterfaceIndexAny, fullname, kDNSServiceType_TXT, kDNSServiceClass_IN, queryRecordCallback, self);
+
+    if( self.lastError == kDNSServiceErr_NoError ) {
+        [super openConnection];
+    } else {
+        [self dnsServiceError:self.lastError];
+    }
+}
 
 #pragma mark -
 #pragma mark Equals & hashcode etc

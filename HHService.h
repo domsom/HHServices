@@ -41,4 +41,6 @@
 - (void) beginResolve;
 - (void) endResolve;
 
+- (void) getTxtRecord;
+
 @end
